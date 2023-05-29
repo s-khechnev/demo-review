@@ -1,0 +1,59 @@
+name: Comment on the PR
+
+# read-write repo token
+# access to secrets
+on:
+  workflow_run:
+    workflows: ["Build PR"]
+    types:
+      - completed
+
+env:
+  OPAMROOT: /home/user/.opam
+  OPAMYES: true
+      
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+
+    container:
+      image: kakadu18/ocaml:fp2022
+
+    permissions:
+      contents: read
+      pull-requests: write
+  
+    steps:
+      - name: 'Download artifact'
+        uses: actions/github-script@v3.1.0
+        with:
+          script: |
+            var artifacts = await github.actions.listWorkflowRunArtifacts({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               run_id: ${{ github.event.workflow_run.id }},
+            });
+            var matchArtifact = artifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "other_stuff";
+            })[0];
+            var download = await github.actions.downloadArtifact({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               artifact_id: matchArtifact.id,
+               archive_format: 'zip',
+            });
+            var fs = require('fs');
+            fs.writeFileSync('other_stuff.zip', Buffer.from(download.data));
+
+      - run: unzip other_stuff.zip
+      - run: |
+          echo "REPORT_FILE_NAME=$(cat REPORT_FILE_NAME.txt)" >> $GITHUB_ENV
+          echo "CI_PULL_REQUEST=$(cat PR_number.txt)" >> $GITHUB_ENV
+          echo "CI_COMMIT=$(cat CI_COMMIT.txt)" >> $GITHUB_ENV
+          echo "CI_REPO_OWNER=s-khechnev" >> $GITHUB_ENV
+      
+      - name: Installing reviewer
+        run: opam pin reviewer https://github.com/s-khechnev/zanuda.git#fix_review
+        
+      - name: Run reviewer
+        run: opam exec -- reviewer -owner ${{env.CI_REPO_OWNER}} -repo ${{github.event.repository.name}} -pr_number ${{ env.CI_PULL_REQUEST }} -commit ${{ env.CI_COMMIT }} -irdjsonl ${{ env.REPORT_FILE_NAME }} -token ${{ secrets.GITHUB_TOKEN }} -review

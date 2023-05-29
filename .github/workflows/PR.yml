@@ -1,0 +1,60 @@
+name: Build PR
+
+on:
+  pull_request:
+    branches:
+      - 'master'
+      
+env:
+  OPAMROOT: /home/user/.opam
+  OPAMYES: true
+      
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    container:
+      image: kakadu18/ocaml:fp2022
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+        
+      - name: Compiling
+        run: opam exec -- dune build --profile=release
+      
+      - name: Running tests
+        run: opam exec -- dune runtest --profile=release
+
+      - run: opam pin add https://github.com/Kakadu/zanuda.git --no-action
+      - name: Installing a linter
+        run: opam install zanuda --yes
+
+      - name: Setting the environment
+        env:
+          LINTS_PATH: _build/default/_found_lints
+          REPORT_FILE_NAME: report.rdjsonl
+        run: |
+          mkdir -p ${{ env.LINTS_PATH }}
+          echo "REPORT_FILE_NAME=${{ env.REPORT_FILE_NAME }}" >> $GITHUB_ENV
+          echo "RDJSON_DIR_PATH=${{ env.LINTS_PATH }}" >> $GITHUB_ENV
+          echo "RDJSON_FILE_PATH=${{ env.LINTS_PATH }}/${{ env.REPORT_FILE_NAME }}" >> $GITHUB_ENV
+
+      - name: Running linter
+        run: |
+          opam exec -- zanuda -dir . -ordjsonl ${{ env.RDJSON_FILE_PATH }}
+
+      - name: Preparing lints tarball
+        run: |
+          echo ${{ env.REPORT_FILE_NAME }} > ${{ env.RDJSON_DIR_PATH }}/REPORT_FILE_NAME.txt
+          echo ${{ github.event.number }} > ${{ env.RDJSON_DIR_PATH }}/PR_number.txt
+          echo ${{ github.event.pull_request.head.sha }} > ${{ env.RDJSON_DIR_PATH }}/CI_COMMIT.txt
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: other_stuff
+          path: |
+            ${{ env.RDJSON_DIR_PATH }}
